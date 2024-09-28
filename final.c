@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <fcntl.h>
+#include <sys/wait.h>
 
 #define MAX_COMMAND 100
 #define MAX_ARGS 100
