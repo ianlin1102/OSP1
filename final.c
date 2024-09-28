@@ -135,7 +135,7 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
   char *saveptr1;
   // Check to see if there are multiple commands
   string[strcspn(string, "\n")] = 0;
-  if (string[0] == '0')
+  if (string[0] == '&')
   {
     write(STDERR_FILENO, error_message, strlen(error_message));
     return;
@@ -155,7 +155,6 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
 
   pid_t children[MAX_COMMAND] = {0}; // Children Arr
   int child_count = 0;
-  bool exited = false;
   // For every command, we execute them
   int cmd = 0;
   for (; cmd < command_count; cmd++)
@@ -215,10 +214,6 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
     if (strcmp(args[0], "exit") == 0 || strcmp(args[0], "cd") == 0 || strcmp(args[0], "path") == 0)
     {
       builtin(args, args_count, paths, path_counter);
-      if (strcmp(args[0], "exit") == 0)
-      {
-        exited = true;
-      }
     }
     else
     {
@@ -264,11 +259,6 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
   {
     waitpid(children[i], NULL, 0);
   }
-  if (interactive && strcmp(args[0], "exit") == 0)
-  {
-    printf("dash> ");
-    fflush(stdout);
-  }
 }
 
 int main(int argc, char *argv[])
@@ -304,7 +294,6 @@ int main(int argc, char *argv[])
   {
     while (1)
     {
-      printf("dash >");
       fflush(stdout);
       char *string = NULL;
       size_t len = 0;
