@@ -56,7 +56,7 @@ void execute_command(char **args, char *paths[], size_t* path_counter, bool redi
   char *executable = find_executable(args[0], paths, path_counter);
   if (executable == NULL)
   {
-    // error
+    write(STDERR_FILENO, error_message, strlen(error_message));
     return;
   }
   int rc = fork();
@@ -80,7 +80,7 @@ void execute_command(char **args, char *paths[], size_t* path_counter, bool redi
       dup2(fd, STDERR_FILENO);
       close(fd); // Close the original fd
     }
-    execv(executable, (char* const*)args[0]);
+    execv(executable, args);
     write(STDERR_FILENO, error_message, strlen(error_message));
     exit(1);
   }
@@ -156,6 +156,7 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
         if (!batch_mode)
           continue;
       }
+      exit(0);
     }
     else if (strcmp(args[0], "cd") == 0)
     {
@@ -163,7 +164,7 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
       {
         write(STDERR_FILENO, error_message, strlen(error_message));
       }
-      if (chdir(args[1]) != 0) // Error in changing directory
+      else if (chdir(args[1]) != 0) // Error in changing directory
       {
         write(STDERR_FILENO, error_message, strlen(error_message));
       }
@@ -172,9 +173,10 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
     {
       clear_path(paths, path_counter);
       int i;
-      for (i = 0; i < args_count; i++)
+      for (i = 1; i < args_count; i++)
       {
-        paths[*(path_counter)++] = strdup(args[i]); // Don't check, that is for find_executable
+        paths[(*path_counter)] = strdup(args[i]); // Don't check, that is for find_executable
+        (*path_counter)++;
       }
     }
     else
@@ -227,6 +229,10 @@ int main(int argc, char *argv[])
 
       if ((read = getline(&string, &len, stdin)) == -1)
       {
+        if(feof(stdin)){
+          exit(0);
+        }
+
         write(STDERR_FILENO, error_message, strlen(error_message));
         exit(1);
       }
