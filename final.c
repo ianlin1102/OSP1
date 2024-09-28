@@ -131,36 +131,55 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
 {
   char *commands[MAX_COMMAND];
   int command_count = 0;
-  char *command_token;
+  char *command_token = NULL;
   char *saveptr1;
   // Check to see if there are multiple commands
   string[strcspn(string, "\n")] = 0;
+  if (string[0] == '0')
+  {
+    write(STDERR_FILENO, error_message, strlen(error_message));
+    return;
+  }
+
   command_token = strtok_r(string, "&", &saveptr1);
   while (command_token != NULL && command_count < MAX_COMMAND)
   {
+    if (strlen(command_token) == 0)
+    {
+      write(STDERR_FILENO, error_message, strlen(error_message));
+      return;
+    }
     commands[command_count++] = command_token;
     command_token = strtok_r(NULL, "&", &saveptr1);
   }
 
   pid_t children[MAX_COMMAND] = {0}; // Children Arr
   int child_count = 0;
-
+  bool exited = false;
   // For every command, we execute them
   int cmd = 0;
   for (; cmd < command_count; cmd++)
   {
     int args_count = 0;
     char *args[MAX_ARGS]; // command  + arguments
-    char *args_token;
+    char *args_token = NULL;
     char *saveptr2;
     bool redirection = false; // If redirection
     char *output_file = NULL;
 
     args_token = strtok_r(commands[cmd], " \t\n", &saveptr2);
+
+    if (args_token == NULL || strcmp(args_token, ">") == 0)
+    {
+      write(STDERR_FILENO, error_message, strlen(error_message));
+      return;
+    }
+
     while (args_token != NULL && args_count < MAX_ARGS - 1)
     {
       if (strcmp(args_token, ">") == 0) // In this very command, there is a redirection
       {
+
         // Need to check if there is another argument to serve as the output file
         redirection = true;
         args_token = strtok_r(NULL, " \t\n", &saveptr2);
@@ -192,9 +211,14 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
     // If there's zero arg, just go to the next round.
     if (args_count == 0)
       continue;
+
     if (strcmp(args[0], "exit") == 0 || strcmp(args[0], "cd") == 0 || strcmp(args[0], "path") == 0)
     {
       builtin(args, args_count, paths, path_counter);
+      if (strcmp(args[0], "exit") == 0)
+      {
+        exited = true;
+      }
     }
     else
     {
@@ -271,7 +295,7 @@ int main(int argc, char *argv[])
 
     while ((read = getline(&string, &len, batch)) != -1) // For every line, treat it as an keyboard input + ENTER
     {
-      process_line(string, paths, &path_counter);
+      process_line(string, paths, &path_counter, false);
     }
     free(string);
     fclose(batch);
