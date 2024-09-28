@@ -9,6 +9,7 @@
 #define MAX_COMMAND 100
 #define MAX_ARGS 100
 #define MAX_PATH 100
+#define MAX_PATH_LENGTH 1024
 const char error_message[30] = "An Error has occurred\n";
 /*
 paths: all the potential paths (could be invalid)
@@ -30,9 +31,9 @@ paths: all the potential paths (could be invalid)
 path_counter: number of paths
 */
 // Function to find the executable in the provided paths
-char *find_executable(char *command, char *paths[], size_t* path_counter)
+char *find_executable(char *command, char *paths[], size_t *path_counter)
 {
-  char full_path[1024];
+  char full_path[MAX_PATH_LENGTH];
   int i = 0;
   for (; i < *path_counter; i++)
   {
@@ -51,7 +52,7 @@ path_counter: number of paths
 redirection: flag to check if redirect
 output_file: file descriptor to redirect
 */
-void execute_command(char **args, char *paths[], size_t* path_counter, bool redirection, char *output_file)
+void execute_command(char **args, char *paths[], size_t *path_counter, bool redirection, char *output_file)
 {
   char *executable = find_executable(args[0], paths, path_counter);
   if (executable == NULL)
@@ -59,11 +60,11 @@ void execute_command(char **args, char *paths[], size_t* path_counter, bool redi
     write(STDERR_FILENO, error_message, strlen(error_message));
     return;
   }
-  int rc = fork();
+  pid_t rc = fork();
   if (rc < 0)
   {
     write(STDERR_FILENO, error_message, strlen(error_message));
-    exit(1);
+    return;
   }
   else if (rc == 0)
   {
@@ -86,6 +87,40 @@ void execute_command(char **args, char *paths[], size_t* path_counter, bool redi
   }
   free(executable);
 }
+void builtin(char **args, int args_count, char *paths[], size_t *path_counter, bool batch_mode)
+{
+  if (strcmp(args[0], "exit") == 0)
+  {
+    if (args_count > 1) // If batch mode exit, and greater than 1 args, error.
+    {
+      write(STDERR_FILENO, error_message, strlen(error_message));
+      return;
+    }
+    exit(0);
+  }
+  else if (strcmp(args[0], "cd") == 0)
+  {
+    if (args_count != 2)
+    {
+      write(STDERR_FILENO, error_message, strlen(error_message));
+      return;
+    }
+    else if (chdir(args[1]) != 0) // Error in changing directory
+    {
+      write(STDERR_FILENO, error_message, strlen(error_message));
+    }
+  }
+  else if (strcmp(args[0], "path") == 0)
+  {
+    clear_path(paths, path_counter);
+    int i;
+    for (i = 1; i < args_count; i++)
+    {
+      paths[(*path_counter)] = strdup(args[i]); // Don't check, that is for find_executable
+      (*path_counter)++;
+    }
+  }
+}
 /*
 string: Entire Line
 paths: all the potential paths (could be invalid)
@@ -101,7 +136,7 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
   // Check to see if there are multiple commands
 
   command_token = strtok_r(string, "&", &saveptr1);
-  while (command_token != NULL)
+  while (command_token != NULL && command_count < MAX_COMMAND)
   {
     commands[command_count++] = command_token;
     command_token = strtok_r(NULL, "&", &saveptr1);
@@ -118,14 +153,13 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
     char *output_file = NULL;
 
     args_token = strtok_r(commands[cmd], " \t\n", &saveptr2);
-    while (args_token != NULL)
+    while (args_token != NULL && args_count < MAX_ARGS - 1)
     {
       if (strcmp(args_token, ">") == 0) // In this very command, there is a redirection
       {
         // Need to check if there is another argument to serve as the output file
         redirection = true;
         args_token = strtok_r(NULL, " \t\n", &saveptr2);
-
         // If there's a file path
         if (args_token != NULL)
         {
@@ -147,37 +181,9 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
     // If there's zero arg, just go to the next round.
     if (args_count == 0)
       continue;
-
-    if (strcmp(args[0], "exit") == 0)
+    if (strcmp(args[0], "exit") == 0 || strcmp(args[0], "cd") == 0 || strcmp(args[0], "path") == 0)
     {
-      if (args_count > 1 || batch_mode) // If batch mode exit, and greater than 1 args, error.
-      {
-        write(STDERR_FILENO, error_message, strlen(error_message));
-        if (!batch_mode)
-          continue;
-      }
-      exit(0);
-    }
-    else if (strcmp(args[0], "cd") == 0)
-    {
-      if (args_count != 2)
-      {
-        write(STDERR_FILENO, error_message, strlen(error_message));
-      }
-      else if (chdir(args[1]) != 0) // Error in changing directory
-      {
-        write(STDERR_FILENO, error_message, strlen(error_message));
-      }
-    }
-    else if (strcmp(args[0], "path") == 0)
-    {
-      clear_path(paths, path_counter);
-      int i;
-      for (i = 1; i < args_count; i++)
-      {
-        paths[(*path_counter)] = strdup(args[i]); // Don't check, that is for find_executable
-        (*path_counter)++;
-      }
+      builtin(args, args_count, paths, path_counter, false);
     }
     else
     {
@@ -201,7 +207,7 @@ int main(int argc, char *argv[])
   }
   else if (argc == 2) // This is batch mode
   {
-    FILE *batch = fopen(argv[1], "r"); 
+    FILE *batch = fopen(argv[1], "r");
     if (batch == NULL)
     {
       write(STDERR_FILENO, error_message, strlen(error_message));
@@ -222,14 +228,16 @@ int main(int argc, char *argv[])
   {
     while (1)
     {
-      printf("Dash >");
+      printf("dash >");
+      fflush(stdout);
       char *string = NULL;
       size_t len = 0;
       ssize_t read;
 
       if ((read = getline(&string, &len, stdin)) == -1)
       {
-        if(feof(stdin)){
+        if (feof(stdin))
+        {
           exit(0);
         }
 
@@ -240,4 +248,6 @@ int main(int argc, char *argv[])
       free(string);
     }
   }
+  clear_path(paths, &path_counter);
+  return 0;
 }
