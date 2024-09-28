@@ -30,11 +30,11 @@ paths: all the potential paths (could be invalid)
 path_counter: number of paths
 */
 // Function to find the executable in the provided paths
-char *find_executable(char *command, char *paths[], size_t path_counter)
+char *find_executable(char *command, char *paths[], size_t* path_counter)
 {
   char full_path[1024];
   int i = 0;
-  for (; i < path_counter; i++)
+  for (; i < *path_counter; i++)
   {
     snprintf(full_path, sizeof(full_path), "%s/%s", paths[i], command); // Construct the full path
     if (access(full_path, X_OK) == 0)
@@ -51,7 +51,7 @@ path_counter: number of paths
 redirection: flag to check if redirect
 output_file: file descriptor to redirect
 */
-void execute_command(char **args, char *paths[], size_t path_counter, bool redirection, char *output_file)
+void execute_command(char **args, char *paths[], size_t* path_counter, bool redirection, char *output_file)
 {
   char *executable = find_executable(args[0], paths, path_counter);
   if (executable == NULL)
@@ -80,7 +80,7 @@ void execute_command(char **args, char *paths[], size_t path_counter, bool redir
       dup2(fd, STDERR_FILENO);
       close(fd); // Close the original fd
     }
-    execv(executable, args[0]);
+    execv(executable, (char* const*)args[0]);
     write(STDERR_FILENO, error_message, strlen(error_message));
     exit(1);
   }
@@ -100,11 +100,11 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
   char *saveptr1;
   // Check to see if there are multiple commands
 
-  command_token = strtok_r(string, '&', &saveptr1);
+  command_token = strtok_r(string, "&", &saveptr1);
   while (command_token != NULL)
   {
     commands[command_count++] = command_token;
-    command_token = strtok_r(NULL, '&', &saveptr1);
+    command_token = strtok_r(NULL, "&", &saveptr1);
   }
   // For every command, we execute them
   int cmd = 0;
@@ -199,7 +199,7 @@ int main(int argc, char *argv[])
   }
   else if (argc == 2) // This is batch mode
   {
-    FILE *batch = open(argv[1], O_RDONLY);
+    FILE *batch = fopen(argv[1], "r"); 
     if (batch == NULL)
     {
       write(STDERR_FILENO, error_message, strlen(error_message));
@@ -211,7 +211,7 @@ int main(int argc, char *argv[])
 
     while ((read = getline(&string, &len, batch)) != -1) // For every line, treat it as an keyboard input + ENTER
     {
-      process_line(string, paths, path_counter, true);
+      process_line(string, paths, &path_counter, true);
     }
     free(string);
     fclose(batch);
@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
         write(STDERR_FILENO, error_message, strlen(error_message));
         exit(1);
       }
-      process_line(string, paths, path_counter, false);
+      process_line(string, paths, &path_counter, false);
       free(string);
     }
   }
