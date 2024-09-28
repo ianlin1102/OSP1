@@ -10,7 +10,7 @@
 #define MAX_ARGS 100
 #define MAX_PATH 100
 #define MAX_PATH_LENGTH 1024
-const char error_message[30] = "An Error has occurred\n";
+const char error_message[30] = "An error has occurred\n";
 /*
 paths: all the potential paths (could be invalid)
 path_counter: number of paths
@@ -87,11 +87,11 @@ void execute_command(char **args, char *paths[], size_t *path_counter, bool redi
   }
   free(executable);
 }
-void builtin(char **args, int args_count, char *paths[], size_t *path_counter, bool batch_mode)
+void builtin(char **args, int args_count, char *paths[], size_t *path_counter)
 {
   if (strcmp(args[0], "exit") == 0)
   {
-    if (args_count > 1) // If batch mode exit, and greater than 1 args, error.
+    if (args_count > 1)
     {
       write(STDERR_FILENO, error_message, strlen(error_message));
       return;
@@ -125,9 +125,9 @@ void builtin(char **args, int args_count, char *paths[], size_t *path_counter, b
 string: Entire Line
 paths: all the potential paths (could be invalid)
 path_counter: number of paths
-batch_mode: check if in batch, which behaves a bit differently in batch mode and interactive mode.
+
 */
-void process_line(char *string, char *paths[], size_t *path_counter, bool batch_mode)
+void process_line(char *string, char *paths[], size_t *path_counter)
 {
   char *commands[MAX_COMMAND];
   int command_count = 0;
@@ -164,6 +164,12 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
         if (args_token != NULL)
         {
           output_file = args_token;
+          args_token = strtok_r(NULL, " \t\n", &saveptr2);
+          if (args_token != NULL) // Additional Path??
+          {
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            return;
+          }
         }
         else
         {
@@ -177,13 +183,14 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
       args[args_count++] = args_token;
       args_token = strtok_r(NULL, " \t\n", &saveptr2);
     }
+
     args[args_count] = NULL;
     // If there's zero arg, just go to the next round.
     if (args_count == 0)
       continue;
     if (strcmp(args[0], "exit") == 0 || strcmp(args[0], "cd") == 0 || strcmp(args[0], "path") == 0)
     {
-      builtin(args, args_count, paths, path_counter, false);
+      builtin(args, args_count, paths, path_counter);
     }
     else
     {
@@ -191,14 +198,17 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool batch_
     }
   }
   // Waiting for all the children
-  while (wait(NULL) > 0)
-    ;
+  int i;
+  for (i = 0; i < command_count; i++)
+  {
+    wait(NULL);
+  }
 }
 
 int main(int argc, char *argv[])
 {
-  char *paths[MAX_PATH] = {strdup("/bin"), NULL}; // Initialize with /bin
-  size_t path_counter = 1;                        // Path count
+  char *paths[MAX_PATH] = {strdup("/bin")}; // Initialize with /bin
+  size_t path_counter = 1;                  // Path count
 
   if (argc > 2)
   {
@@ -219,7 +229,7 @@ int main(int argc, char *argv[])
 
     while ((read = getline(&string, &len, batch)) != -1) // For every line, treat it as an keyboard input + ENTER
     {
-      process_line(string, paths, &path_counter, true);
+      process_line(string, paths, &path_counter);
     }
     free(string);
     fclose(batch);
