@@ -6,8 +6,8 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 
-#define MAX_COMMAND 100
-#define MAX_ARGS 100
+#define MAX_COMMAND 1024
+#define MAX_ARGS 1024
 #define MAX_PATH 100
 #define MAX_PATH_LENGTH 1024
 const char error_message[30] = "An error has occurred\n";
@@ -132,7 +132,6 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
   char *commands[MAX_COMMAND];
   int command_count = 0;
   char *command_token = NULL;
-  char *saveptr1;
   // Check to see if there are multiple commands
   string[strcspn(string, "\n")] = 0;
   if (string[0] == '&')
@@ -140,17 +139,23 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
     write(STDERR_FILENO, error_message, strlen(error_message));
     return;
   }
-
-  command_token = strtok_r(string, "&", &saveptr1);
-  while (command_token != NULL && command_count < MAX_COMMAND)
-  {
-    if (strlen(command_token) == 0)
+  // For & sign inbetween a word
+  char *current = string; // starting from 0
+  while (*current != '\0' && command_count < MAX_COMMAND - 1)
+  {                                   // Don't go out of bound and not terminal
+    char *end = strchr(current, '&'); // Search for '&'
+    if (end == NULL)
+    {
+      command[command_count++] = current; // It means no '&'
+    }
+    *end = '\0';        // Got some result and change it
+    if (end == current) // If they happened to be the same, then there's something wrong, zero input
     {
       write(STDERR_FILENO, error_message, strlen(error_message));
       return;
     }
-    commands[command_count++] = command_token;
-    command_token = strtok_r(NULL, "&", &saveptr1);
+    commands[command_count++] = current; // A valid result from start -----\0
+    current = end + 1;
   }
 
   pid_t children[MAX_COMMAND] = {0}; // Children Arr
@@ -160,50 +165,57 @@ void process_line(char *string, char *paths[], size_t *path_counter, bool intera
   for (; cmd < command_count; cmd++)
   {
     int args_count = 0;
-    char *args[MAX_ARGS]; // command  + arguments
-    char *args_token = NULL;
-    char *saveptr2;
+    char *args[MAX_ARGS];     // command  + arguments
     bool redirection = false; // If redirection
     char *output_file = NULL;
 
-    args_token = strtok_r(commands[cmd], " \t\n", &saveptr2);
-
-    if (args_token == NULL || strcmp(args_token, ">") == 0)
+    char *current_arg = commands[cmd];                        // First Letter
+    while (*current_arg != '\0' && args_count < MAX_ARGS - 1) // '\0' end of the string, and not out of bound
     {
-      write(STDERR_FILENO, error_message, strlen(error_message));
-      return;
-    }
-
-    while (args_token != NULL && args_count < MAX_ARGS - 1)
-    {
-      if (strcmp(args_token, ">") == 0) // In this very command, there is a redirection
+      while (*current_arg == ' ' || *current_arg == ' \t') // Disregard all the spaces
       {
-
-        // Need to check if there is another argument to serve as the output file
-        redirection = true;
-        args_token = strtok_r(NULL, " \t\n", &saveptr2);
-        // If there's a file path
-        if (args_token != NULL)
-        {
-          output_file = args_token;
-          args_token = strtok_r(NULL, " \t\n", &saveptr2);
-          if (args_token != NULL) // Additional Path??
-          {
-            write(STDERR_FILENO, error_message, strlen(error_message));
-            return;
-          }
-        }
-        else
+        current_arg++;
+      }
+      if (*current_arg == '>')
+      {
+        if (redirection || args_count == 0) // If there's a previous redirection '>>' or no src
         {
           write(STDERR_FILENO, error_message, strlen(error_message));
           return;
         }
-        // If redirection, then we are done with this command
+
+        redirection = true;
+        current_arg++;
+        // looking for a dst
+        while (*current_arg == ' ' || *current_arg == ' \t')
+        {
+          current_arg++;
+        }
+        // IF the first thing comes after blanks is terminate sign
+        if (*current_arg == '\0')
+        {
+          write(STDERR_FILENO, error_message, strlen(error_message));
+          return;
+        }
+        output_file = current_arg; // Redirect file starts from here
         break;
       }
-      //
-      args[args_count++] = args_token;
-      args_token = strtok_r(NULL, " \t\n", &saveptr2);
+      args[args_count++] = current_arg;
+
+      // At this point, it is a command_+'>'+redirect_file
+      // first part command
+      while (*current_arg != ' ' && *current_arg != '\t' && *current_arg != '>' && *current_arg != '\0')
+      {
+        current_arg++;
+      }
+      if (*current_arg == '>') // Go back to the beginning and do redirect_file part
+        continue;
+
+      if (*current_arg != '\0')
+      {
+        *current_arg = '\0';
+        current_arg++;
+      }
     }
 
     args[args_count] = NULL;
